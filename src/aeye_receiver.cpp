@@ -138,6 +138,7 @@ void AeyeReceiver::stop()
     //     thread has finished its recv() call?
     //   - What if stop() is called twice?
     running_ = false;
+    std::this_thread::sleep_for(std::chrono::milliseconds(100)); // make sure recv loop stops
     if (recv_thread_.joinable()) {
         recv_thread_.join();
     }
