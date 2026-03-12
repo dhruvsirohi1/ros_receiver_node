@@ -1,0 +1,39 @@
+# ============================================================
+#  Aeye ROS 2 Driver — Default Configuration
+# ============================================================
+#
+#  Copy this file and modify for your deployment:
+#
+#    cp config/default_params.yaml config/my_robot.yaml
+#    ros2 launch aeye_ros2_driver aeye_driver.launch.py \
+#        config_file:=/path/to/my_robot.yaml
+#
+# ============================================================
+
+aeye_driver:
+  ros__parameters:
+
+    # --- Network ---
+    sensor_ip: "0.0.0.0"         # Bind address ("0.0.0.0" = all interfaces)
+    port: 8080                    # UDP port aeye_service sends to
+    recv_buffer_size: 4194304     # Socket receive buffer (bytes). Increase
+                                  # if you see packet drops at high frame rates.
+
+    # --- Publishing ---
+    frame_id: "aeye_lidar"        # TF frame stamped on PointCloud2
+    topic_name: "/aeye/points"    # Published topic name
+
+    # --- Point filtering ---
+    min_range: 0.1                # meters — drop returns closer than this
+    max_range: 200.0              # meters — drop returns farther than this
+    min_intensity: 0.0            # drop returns below this intensity
+
+    # --- PointCloud2 field selection ---
+    #  xyz is always included. Toggle additional fields below.
+    #  Fewer fields = smaller messages = less bandwidth.
+    include_intensity: true
+    include_timestamp: false
+    include_point_type: false
+
+    # --- Diagnostics ---
+    enable_diagnostics: true      # Log frame stats to console
