@@ -39,6 +39,8 @@ struct __attribute__((packed)) AeyePointPacket {
 // Header size: the bytes before the points array
 constexpr size_t PACKET_HEADER_SIZE = sizeof(uint32_t) + sizeof(uint32_t);  // 8 bytes
 
+constexpr size_t MAX_PACKET_SIZE = MAX_POINTS_PER_PACKET * sizeof(AeyeReturnPoint) + 2 * sizeof(uint32_t);
+
 }  // namespace aeye_ros2_driver
 
 #endif  // AEYE_ROS2_DRIVER__AEYE_TYPES_HPP_

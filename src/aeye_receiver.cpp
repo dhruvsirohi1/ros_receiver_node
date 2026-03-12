@@ -138,7 +138,7 @@ void AeyeReceiver::stop()
     //     thread has finished its recv() call?
     //   - What if stop() is called twice?
     running_ = false;
-    std::this_thread::sleep_for(std::chrono::milliseconds(100)); // make sure recv loop stops
+    std::this_thread::sleep_for(std::chrono::milliseconds(200)); // make sure recv loop stops
     if (recv_thread_.joinable()) {
         recv_thread_.join();
     }
@@ -163,7 +163,30 @@ void AeyeReceiver::receive_loop()
     //
     // Hint: recv() returns ssize_t. What does a negative
     // return value mean vs zero vs positive?
+    while (running_) {
+        ssize_t n_bytes = recv(socket_fd_, recv_buf_.data(), sizeof(AeyePointPacket), 0);
 
+        if (n_bytes < 0) {
+            RCLCPP_DEBUG(rclcpp::get_logger("aeye_receive_loop"), "n_bytes < 0");
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                // timeout or nonblocking no-data case
+                continue;
+            }
+            if (errno == EINTR) {
+                // interrupted by signal, retry
+                continue;
+            }
+            std::cerr << "recv failed: " << std::strerror(errno) << "\n";
+            break;
+        }
+
+        AeyePointPacket out{};
+        if (!deserialize(recv_buf_.data(), n_bytes, out)) {
+            RCLCPP_DEBUG(rclcpp::get_logger("aeye_receive_loop"), "Deserialize failed");
+            continue;
+        }
+        callback_(out);
+    }
 }
 
 bool AeyeReceiver::deserialize(
