@@ -15,7 +15,7 @@ AeyeReceiver::AeyeReceiver(
     : bind_ip_(bind_ip),
       port_(port),
       callback_(std::move(callback)),
-      recv_buf_(sizeof(AeyePointPacket))  // max possible datagram size
+      recv_buf_(sizeof(AeyePointPacket))
 {
 }
 
@@ -26,44 +26,56 @@ AeyeReceiver::~AeyeReceiver()
 
 void AeyeReceiver::start()
 {
-    // --- Create UDP socket ---
-    socket_fd_ = socket(AF_INET, SOCK_DGRAM, 0);
-    if (socket_fd_ < 0) {
-        throw std::runtime_error("Failed to create UDP socket: "
-                                 + std::string(strerror(errno)));
-    }
+    // --------------------------------------------------------
+    // TODO 1: Create a UDP socket
+    // --------------------------------------------------------
+    // Hint: Which SOCK_ type is connectionless?
+    // Store the file descriptor in socket_fd_.
+    // If it fails, throw a std::runtime_error.
 
-    // Allow address reuse (helpful during development / restarts)
-    int optval = 1;
-    setsockopt(socket_fd_, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
 
-    // Increase receive buffer size — we're getting large, bursty datagrams
-    int rcvbuf_size = 4 * 1024 * 1024;  // 4 MB
-    setsockopt(socket_fd_, SOL_SOCKET, SO_RCVBUF, &rcvbuf_size, sizeof(rcvbuf_size));
+    // --------------------------------------------------------
+    // TODO 2: Set socket options
+    // --------------------------------------------------------
+    // Two options matter here:
+    //
+    //   a) Address reuse — why would this help during development
+    //      when you're frequently restarting the node?
+    //
+    //   b) Receive buffer size — the default kernel buffer is
+    //      small (usually ~200KB). We're receiving bursty,
+    //      large datagrams. What happens to incoming data
+    //      when the buffer is full and recv() hasn't been
+    //      called yet?
 
-    // --- Bind to address ---
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port_);
-    inet_pton(AF_INET, bind_ip_.c_str(), &addr.sin_addr);
 
-    if (bind(socket_fd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
-        close(socket_fd_);
-        socket_fd_ = -1;
-        throw std::runtime_error("Failed to bind UDP socket to "
-                                 + bind_ip_ + ":" + std::to_string(port_)
-                                 + " — " + std::string(strerror(errno)));
-    }
+    // --------------------------------------------------------
+    // TODO 3: Bind the socket
+    // --------------------------------------------------------
+    // Hint: You need a sockaddr_in struct. Think about:
+    //   - What does sin_family need to be?
+    //   - Why do we call htons() on the port?
+    //   - What does binding to "0.0.0.0" mean vs a specific IP?
+    //
+    // If bind fails, clean up the socket before throwing.
 
-    // --- Set a receive timeout so the loop can check running_ periodically ---
-    timeval tv{};
-    tv.tv_sec = 0;
-    tv.tv_usec = 100000;  // 100 ms
-    setsockopt(socket_fd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
-    // --- Launch receive thread ---
-    running_ = true;
-    recv_thread_ = std::thread(&AeyeReceiver::receive_loop, this);
+    // --------------------------------------------------------
+    // TODO 4: Set a receive timeout
+    // --------------------------------------------------------
+    // Hint: Without a timeout, recv() blocks forever. How would
+    // the receive loop ever check running_ to know it should
+    // stop? What's a reasonable timeout — 10ms? 100ms? 1s?
+    // Think about the tradeoff between shutdown responsiveness
+    // and CPU usage.
+
+
+    // --------------------------------------------------------
+    // TODO 5: Launch the receive thread
+    // --------------------------------------------------------
+    // Hint: Set running_ to true BEFORE launching the thread.
+    // Why does the order matter?
+
 
     std::cout << "[AeyeReceiver] Listening on "
               << bind_ip_ << ":" << port_ << std::endl;
@@ -71,117 +83,74 @@ void AeyeReceiver::start()
 
 void AeyeReceiver::stop()
 {
-    running_ = false;
+    // --------------------------------------------------------
+    // TODO 6: Shut down cleanly
+    // --------------------------------------------------------
+    // Think about:
+    //   - What order should you do things? (signal, join, close)
+    //   - What happens if you close the socket before the
+    //     thread has finished its recv() call?
+    //   - What if stop() is called twice?
 
-    if (recv_thread_.joinable()) {
-        recv_thread_.join();
-    }
-
-    if (socket_fd_ >= 0) {
-        close(socket_fd_);
-        socket_fd_ = -1;
-    }
 }
 
-// ============================================================
-//  Receive loop — runs on its own thread
-// ============================================================
 void AeyeReceiver::receive_loop()
 {
-    while (running_) {
-        // Blocking recv with timeout (set in start())
-        ssize_t bytes_read = recv(
-            socket_fd_,
-            recv_buf_.data(),
-            recv_buf_.size(),
-            0  // flags
-        );
+    // --------------------------------------------------------
+    // TODO 7: Implement the receive loop
+    // --------------------------------------------------------
+    // This runs on its own thread. The structure is:
+    //
+    //   while (running_) {
+    //       1. Call recv() into recv_buf_
+    //       2. Handle errors:
+    //          - Timeout is not a real error (which errno values?)
+    //          - Zero bytes means nothing useful arrived
+    //          - Actual errors should be logged but not fatal
+    //       3. On success: deserialize and invoke callback_
+    //   }
+    //
+    // Hint: recv() returns ssize_t. What does a negative
+    // return value mean vs zero vs positive?
 
-        if (bytes_read < 0) {
-            // Timeout or interrupted — just loop and check running_
-            if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
-                continue;
-            }
-            std::cerr << "[AeyeReceiver] recv error: "
-                      << strerror(errno) << std::endl;
-            continue;
-        }
-
-        if (bytes_read == 0) {
-            continue;
-        }
-
-        // --- Deserialize and dispatch ---
-        AeyePointPacket packet;
-        if (deserialize(recv_buf_.data(),
-                        static_cast<size_t>(bytes_read),
-                        packet))
-        {
-            callback_(packet);
-        }
-    }
 }
 
-// ============================================================
-//  Deserialization: raw UDP bytes → AeyePointPacket
-// ============================================================
-//
-//  On-wire layout (packed, little-endian — matches x86 and the FPGA):
-//
-//    [0..3]   uint32_t  sequence_number
-//    [4..7]   uint32_t  num_points
-//    [8.. ]   AeyeReturnPoint[num_points]   (each 48 bytes)
-//
-//  The FPGA writes points directly into DMA memory in this packed
-//  layout. aeye_service reads them out and forwards over UDP with
-//  no re-encoding — so on an x86 host we can memcpy straight into
-//  our matching packed structs.
-//
 bool AeyeReceiver::deserialize(
     const uint8_t* raw, size_t length, AeyePointPacket& out)
 {
-    // --- Validate minimum size: need at least the header ---
-    if (length < PACKET_HEADER_SIZE) {
-        std::cerr << "[AeyeReceiver] Datagram too short for header: "
-                  << length << " bytes" << std::endl;
-        return false;
-    }
-
-    // --- Read header fields ---
-    std::memcpy(&out.sequence_number, raw, sizeof(uint32_t));
-    std::memcpy(&out.num_points, raw + sizeof(uint32_t), sizeof(uint32_t));
-
-    // --- Sanity checks ---
-    if (out.num_points > MAX_POINTS_PER_PACKET) {
-        std::cerr << "[AeyeReceiver] num_points (" << out.num_points
-                  << ") exceeds MAX_POINTS_PER_PACKET" << std::endl;
-        return false;
-    }
-
-    const size_t expected_size =
-        PACKET_HEADER_SIZE + (out.num_points * sizeof(AeyeReturnPoint));
-
-    if (length < expected_size) {
-        std::cerr << "[AeyeReceiver] Datagram truncated: got "
-                  << length << " bytes, expected " << expected_size
-                  << " for " << out.num_points << " points" << std::endl;
-        return false;
-    }
-
-    // --- Copy point data in one shot ---
+    // --------------------------------------------------------
+    // TODO 8: Deserialize raw UDP bytes into AeyePointPacket
+    // --------------------------------------------------------
     //
-    // This works because:
-    //   1. Both FPGA and x86 are little-endian
-    //   2. Structs are __attribute__((packed)) — no padding surprises
-    //   3. The on-wire layout matches our in-memory layout exactly
+    // The on-wire layout is:
     //
-    // If the sensor were big-endian, we'd need to byte-swap each field here.
+    //   [0..3]   uint32_t  sequence_number
+    //   [4..7]   uint32_t  num_points
+    //   [8.. ]   AeyeReturnPoint[num_points]   (each 48 bytes)
     //
-    std::memcpy(out.points,
-                raw + PACKET_HEADER_SIZE,
-                out.num_points * sizeof(AeyeReturnPoint));
+    // Steps:
+    //   a) Validate the datagram is at least as big as the header.
+    //      What is the header size? (look at PACKET_HEADER_SIZE)
+    //
+    //   b) Extract sequence_number and num_points from the raw bytes.
+    //      Hint: Why is memcpy preferred over reinterpret_cast here?
+    //      Think about strict aliasing and alignment.
+    //
+    //   c) Sanity check num_points. What should the upper bound be?
+    //      What's the right thing to do if it's too large?
+    //
+    //   d) Calculate the expected total size using num_points.
+    //      Verify the datagram is big enough. Why might it be
+    //      smaller than expected? (Think network conditions)
+    //
+    //   e) Copy the point data into out.points.
+    //      Hint: This can be done in a single memcpy because
+    //      the on-wire layout matches our packed struct layout.
+    //      Why does this only work on little-endian machines?
+    //
+    // Return true on success, false if the datagram is malformed.
 
-    return true;
+    return false;
 }
 
 }  // namespace aeye_ros2_driver

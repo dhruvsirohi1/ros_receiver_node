@@ -3,11 +3,15 @@
 
 int main(int argc, char* argv[])
 {
-    rclcpp::init(argc, argv);
-    auto node = std::make_shared<aeye_ros2_driver::AeyeDriverNode>();
-    // spin() keeps the node alive for parameter services, logging, etc.
-    // Actual data flow is driven by the receiver thread, not the executor.
-    rclcpp::spin(node);
-    rclcpp::shutdown();
+    // --------------------------------------------------------
+    // TODO: Initialize ROS 2, create the node, and spin.
+    // --------------------------------------------------------
+    // Three calls needed:
+    //   1. Initialize the ROS 2 runtime
+    //   2. Create an instance of our node
+    //   3. Hand it to the executor (spin) so it stays alive
+    //
+    // Don't forget to shutdown cleanly when spin returns.
+
     return 0;
 }
