@@ -137,7 +137,11 @@ void AeyeReceiver::stop()
     //   - What happens if you close the socket before the
     //     thread has finished its recv() call?
     //   - What if stop() is called twice?
-
+    running_ = false;
+    if (recv_thread_.joinable()) {
+        recv_thread_.join();
+    }
+    close(socket_fd_);
 }
 
 void AeyeReceiver::receive_loop()
