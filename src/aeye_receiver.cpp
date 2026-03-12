@@ -223,8 +223,34 @@ bool AeyeReceiver::deserialize(
     //      Why does this only work on little-endian machines?
     //
     // Return true on success, false if the datagram is malformed.
+    if (length < PACKET_HEADER_SIZE) {
+        RCLCPP_ERROR(rclcpp::get_logger("aeye_receive_loop"),
+            "Invalid length of recv packet [-1]");
+        return false;
+    }
 
-    return false;
+    std::memcpy(&out.sequence_number, raw, sizeof(out.sequence_number));
+    std::memcpy(&out.num_points, raw + sizeof(out.sequence_number), sizeof(out.num_points));
+
+    if (out.num_points == 0) {
+        RCLCPP_DEBUG(rclcpp::get_logger("aeye_receive_deserialize"),
+            "No points in datagram");
+        return false;
+    }
+    if (out.num_points > MAX_POINTS_PER_PACKET) {
+        RCLCPP_DEBUG(rclcpp::get_logger("aeye_receive_deserialize"),
+            "Too many points in the packet.");
+        return false;
+    }
+
+    if (length != PACKET_HEADER_SIZE + out.num_points * sizeof(AeyeReturnPoint)) {
+        RCLCPP_DEBUG(rclcpp::get_logger("aeye_receive_deserialize"),
+            "Datagram length does not match expected length.");
+        return false;
+    }
+
+    std::memcpy(&out.points, raw + PACKET_HEADER_SIZE, out.num_points * sizeof(AeyeReturnPoint));
+    return true;
 }
 
 }  // namespace aeye_ros2_driver
