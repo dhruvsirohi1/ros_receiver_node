@@ -12,6 +12,11 @@ int main(int argc, char* argv[])
     //   3. Hand it to the executor (spin) so it stays alive
     //
     // Don't forget to shutdown cleanly when spin returns.
+    rclcpp::init(argc, argv);
+    auto node = std::make_unique<rclcpp::Node>("aeye_ros2_driver");
+    rclcpp::spin(std::move(node));
+
+    rclcpp::shutdown();
 
     return 0;
 }

@@ -7,6 +7,7 @@
 #include <cstring>
 #include <stdexcept>
 #include <iostream>
+#include <rclcpp/logging.hpp>
 
 namespace aeye_ros2_driver {
 
@@ -17,10 +18,14 @@ AeyeReceiver::AeyeReceiver(
       callback_(std::move(callback)),
       recv_buf_(sizeof(AeyePointPacket))
 {
+    RCLCPP_DEBUG(rclcpp::get_logger("aeye_receiver"),
+        "AeyeReceiver::AeyeReceiver() created...");
 }
 
 AeyeReceiver::~AeyeReceiver()
 {
+    RCLCPP_DEBUG(rclcpp::get_logger("aeye_receiver"),
+        "AeyeReceiver::~AeyeReceiver() destructor called. Stopping...");
     stop();
 }
 
@@ -32,8 +37,10 @@ void AeyeReceiver::start()
     // Hint: Which SOCK_ type is connectionless?
     // Store the file descriptor in socket_fd_.
     // If it fails, throw a std::runtime_error.
-
-
+    socket_fd_ = socket(AF_INET, SOCK_DGRAM, 0);
+    if (socket_fd_ < 0) {
+        throw std::runtime_error("Failed to create socket");
+    }
     // --------------------------------------------------------
     // TODO 2: Set socket options
     // --------------------------------------------------------
@@ -47,7 +54,24 @@ void AeyeReceiver::start()
     //      large datagrams. What happens to incoming data
     //      when the buffer is full and recv() hasn't been
     //      called yet?
+    int yes = 1;
+    setsockopt(socket_fd_, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
 
+    int requested = 8 * 1024 * 1024;  // 8 MB request
+    if (setsockopt(socket_fd_, SOL_SOCKET, SO_RCVBUF, &requested, sizeof(requested)) < 0) {
+        RCLCPP_ERROR(rclcpp::get_logger("aeye_receiver"),
+            "setsockopt falied while requesting buffer size");
+        perror("setsockopt");
+        close(socket_fd_);
+        return;
+    }
+
+    int actual = 0;
+    socklen_t optlen = sizeof(actual);
+    getsockopt(socket_fd_, SOL_SOCKET, SO_RCVBUF, &actual, &optlen);
+
+    RCLCPP_DEBUG(rclcpp::get_logger("aeye_receiver"),"Requested: %d bytes\n", requested);
+    RCLCPP_DEBUG(rclcpp::get_logger("aeye_receiver"),"Actual: %d bytes\n", actual);
 
     // --------------------------------------------------------
     // TODO 3: Bind the socket
@@ -58,8 +82,22 @@ void AeyeReceiver::start()
     //   - What does binding to "0.0.0.0" mean vs a specific IP?
     //
     // If bind fails, clean up the socket before throwing.
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port_);          // local port to listen on
+    if (inet_pton(AF_INET, bind_ip_.c_str(), &addr.sin_addr) != 1) {
+        RCLCPP_ERROR(rclcpp::get_logger("aeye_receiver"), "Invalid bind ip.");
+        close(socket_fd_);
+        return;
+    }
 
-
+    if (bind(socket_fd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
+        RCLCPP_ERROR(rclcpp::get_logger("aeye_receiver"), "Failed to bind to addr.");
+        close(socket_fd_);
+        return;
+    }
+    RCLCPP_DEBUG(rclcpp::get_logger("aeye_receiver"),
+        "Bound to %s:%d.", bind_ip_.c_str(), port_);
     // --------------------------------------------------------
     // TODO 4: Set a receive timeout
     // --------------------------------------------------------
@@ -68,14 +106,22 @@ void AeyeReceiver::start()
     // stop? What's a reasonable timeout — 10ms? 100ms? 1s?
     // Think about the tradeoff between shutdown responsiveness
     // and CPU usage.
+    timeval tv{};
+    tv.tv_sec = 0;      // 0 second
+    tv.tv_usec = 100000; // 100ms or 0.1s
 
+    if (setsockopt(socket_fd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
+        RCLCPP_WARN(rclcpp::get_logger("aeye_receiver"),
+            "setsockopt SO_RCVTIMEO");
+    }
 
     // --------------------------------------------------------
     // TODO 5: Launch the receive thread
     // --------------------------------------------------------
     // Hint: Set running_ to true BEFORE launching the thread.
     // Why does the order matter?
-
+    running_ = true;
+    recv_thread_ = std::thread(&AeyeReceiver::receive_loop, this);
 
     std::cout << "[AeyeReceiver] Listening on "
               << bind_ip_ << ":" << port_ << std::endl;
