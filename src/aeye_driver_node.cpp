@@ -18,6 +18,7 @@ AeyeDriverNode::AeyeDriverNode(const rclcpp::NodeOptions& options)
 {
     declare_all_parameters();
     build_field_layout();
+    frame_buffer_.reserve(MAX_POINTS_PER_PACKET);
     setup_publisher();
     start_receiver();
 
@@ -339,6 +340,17 @@ bool AeyeDriverNode::passes_filter(const AeyeReturnPoint& point) const
 //
 void AeyeDriverNode::publish_frame()
 {
+    if (!frame_in_progress_ || !frame_buffer_.empty()) return;
+
+    auto msg = std::make_shared<sensor_msgs::msg::PointCloud2>();
+    uint64_t ts_ns = frame_buffer_.front().timestamp_ns;
+
+    msg->header.stamp.sec = static_cast<int32_t>(ts_ns / 1000000000ULL);
+    msg->header.stamp.nanosec = static_cast<uint32_t>(ts_ns % 1000000000ULL);
+    msg->header.frame_id = frame_id_;
+
+    msg->height = 1;
+    msg->width = frame_buffer_.size();
 
 }
 
