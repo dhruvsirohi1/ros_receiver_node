@@ -62,8 +62,8 @@ private:
     bool enable_diagnostics_;
 
     // === PointCloud2 field layout (built once at startup) ===
-    std::vector<FieldConfig> active_fields_;
-    size_t point_step_;  // bytes per point in the output message
+    std::vector<sensor_msgs::msg::PointField> active_fields_;
+    size_t point_step_{sizeof(AeyePointPacket)};  // bytes per point in the output message
 
     // === Publisher ===
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr publisher_;

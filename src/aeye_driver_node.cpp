@@ -121,21 +121,21 @@ void AeyeDriverNode::build_field_layout()
 {
     active_fields_.clear();
 
-    FieldConfig x{};
+    PointField x{};
     x.name = "x";
     x.datatype = sensor_msgs::msg::PointField::FLOAT32;
     x.offset = 4;
     x.count = 1;
     active_fields_.push_back(x);
 
-    FieldConfig y{};
+    PointField y{};
     x.name = "y";
     x.datatype = sensor_msgs::msg::PointField::FLOAT32;
     x.offset = 4;
     x.count = 1;
     active_fields_.push_back(y);
 
-    FieldConfig z{};
+    PointField z{};
     x.name = "z";
     x.datatype = sensor_msgs::msg::PointField::FLOAT32;
     x.offset = 4;
@@ -143,7 +143,7 @@ void AeyeDriverNode::build_field_layout()
     active_fields_.push_back(z);
 
     if (include_intensity_) {
-        FieldConfig intensity{};
+        PointField intensity{};
         x.name = "intensity";
         x.datatype = sensor_msgs::msg::PointField::FLOAT32;
         x.offset = 4;
@@ -152,7 +152,7 @@ void AeyeDriverNode::build_field_layout()
     }
 
     if (include_timestamp_) {
-        FieldConfig timestamp{};
+        PointField timestamp{};
         x.name = "timestamp";
         x.datatype = sensor_msgs::msg::PointField::FLOAT64;
         x.offset = 8;
@@ -161,7 +161,7 @@ void AeyeDriverNode::build_field_layout()
     }
 
     if (include_point_type_) {
-        FieldConfig point_type{};
+        PointField point_type{};
         x.name = "point_type";
         x.datatype = sensor_msgs::msg::PointField::FLOAT32;
         x.offset = 4;
@@ -342,7 +342,7 @@ void AeyeDriverNode::publish_frame()
 {
     if (!frame_in_progress_ || !frame_buffer_.empty()) return;
 
-    auto msg = std::make_shared<sensor_msgs::msg::PointCloud2>();
+    auto msg = std::make_unique<sensor_msgs::msg::PointCloud2>();
     uint64_t ts_ns = frame_buffer_.front().timestamp_ns;
 
     msg->header.stamp.sec = static_cast<int32_t>(ts_ns / 1000000000ULL);
@@ -351,7 +351,24 @@ void AeyeDriverNode::publish_frame()
 
     msg->height = 1;
     msg->width = frame_buffer_.size();
+    msg->point_step = point_step_;
+    msg->row_step = msg->width * point_step_;
+    msg->is_dense = true;
+    msg->is_bigendian = false;
 
+    msg->fields = active_fields_;
+
+    msg->data.reserve(msg->row_step);
+    uint8_t* write_ptr = msg->data.data();
+
+    for (size_t i = 0; i < frame_buffer_.size(); ++i) {
+        write_point_to_buffer(frame_buffer_[i], write_ptr);
+        write_ptr += point_step_;
+    }
+
+    publisher_->publish(std::move(msg));
+
+    frame_in_progress_ = false;
 }
 
 // ============================================================
