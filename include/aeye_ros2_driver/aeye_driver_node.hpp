@@ -53,8 +53,8 @@ private:
     std::string frame_id_;
     std::string topic_name_;
     int recv_buffer_size_;
-    double min_range_;
-    double max_range_;
+    double min_range_sq_;
+    double max_range_sq_;
     double min_intensity_;
     bool include_intensity_;
     bool include_timestamp_;

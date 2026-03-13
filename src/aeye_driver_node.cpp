@@ -80,8 +80,11 @@ void AeyeDriverNode::declare_all_parameters()
     this->get_parameter("recv_buffer_size", recv_buffer_size_);
     this->get_parameter("frame_id", frame_id_);
     this->get_parameter("topic_name", topic_name_);
-    this->get_parameter("min_range", min_range_);
-    this->get_parameter("max_range", max_range_);
+    double min_range, max_range;
+    this->get_parameter("min_range", min_range);
+    min_range_sq_ = min_range * min_range;
+    this->get_parameter("max_range", max_range);
+    max_range_sq_ = max_range * max_range;
     this->get_parameter("min_intensity", min_intensity_);
     this->get_parameter("include_timestamp", include_timestamp_);
     this->get_parameter("include_timestamp", include_timestamp_);
@@ -232,7 +235,20 @@ void AeyeDriverNode::start_receiver()
 //
 void AeyeDriverNode::on_packet(const AeyePointPacket& packet)
 {
+    if (packet.num_points <= 0) return;
+    if (packet.num_points > MAX_POINTS_PER_PACKET) return;
 
+    for (const auto& point : packet.points) {
+        if (point.is_sof()) {
+            begin_new_frame();
+            frame_in_progress_ = true;
+        }
+        accumulate_point(point);
+        if (point.is_eof()) {
+            frame_in_progress_ = false;
+            publish_frame();
+        }
+    }
 }
 
 // ============================================================
@@ -245,14 +261,16 @@ void AeyeDriverNode::on_packet(const AeyePointPacket& packet)
 //     reserve size to avoid repeated reallocation?
 void AeyeDriverNode::begin_new_frame()
 {
-
+    frame_buffer_.clear();
 }
 
 // Add a single point to the current frame.
 // Should every point go in, or should we filter first?
 void AeyeDriverNode::accumulate_point(const AeyeReturnPoint& point)
 {
-
+    if (frame_in_progress_) {
+        if (passes_filter(point)) frame_buffer_.push_back(point);
+    }
 }
 
 // ============================================================
@@ -273,7 +291,12 @@ void AeyeDriverNode::accumulate_point(const AeyeReturnPoint& point)
 //
 bool AeyeDriverNode::passes_filter(const AeyeReturnPoint& point) const
 {
-    return true;  // placeholder — currently accepts everything
+    auto range_sq = point.x * point.x +
+                         point.y * point.y +
+                         point.z * point.z;
+
+    return point.intensity > min_intensity_ &&
+        (range_sq >= min_range_sq_ && range_sq <= max_range_sq_);
 }
 
 // ============================================================
