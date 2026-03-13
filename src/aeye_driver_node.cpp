@@ -53,18 +53,42 @@ AeyeDriverNode::~AeyeDriverNode()
 void AeyeDriverNode::declare_all_parameters()
 {
     // Network params
-
+    this->declare_parameter<std::string>("sensor_ip", "0.0.0.0");
+    this->declare_parameter<uint32_t>("port", 8080);
+    this->declare_parameter<uint32_t>("recv_buffer_size", 4194304);
 
     // Publishing params
-
+    this->declare_parameter<std::string>("frame_id", "aeye_lidar");
+    this->declare_parameter<std::string>("topic_name", "/aeye/points");
 
     // Filtering params
-
+    this->declare_parameter<float>("min_range", 0.1f);
+    this->declare_parameter<float>("max_range", 200.0f);
+    this->declare_parameter<float>("min_intensity", 0.0f);
 
     // Field selection params
-
+    this->declare_parameter<bool>("include_timestamp", true);
+    this->declare_parameter<bool>("include_timestamp", false);
+    this->declare_parameter<bool>("include_point_type", false);
 
     // Diagnostics params
+    this->declare_parameter<bool>("enable_diagnostics", false);
+
+    // Fill in the parameters
+    this->get_parameter("sensor_ip", sensor_ip_);
+    this->get_parameter("port", port_);
+    this->get_parameter("recv_buffer_size", recv_buffer_size_);
+    this->get_parameter("frame_id", frame_id_);
+    this->get_parameter("topic_name", topic_name_);
+    this->get_parameter("min_range", min_range_);
+    this->get_parameter("max_range", max_range_);
+    this->get_parameter("min_intensity", min_intensity_);
+    this->get_parameter("include_timestamp", include_timestamp_);
+    this->get_parameter("include_timestamp", include_timestamp_);
+    this->get_parameter("include_point_type", include_point_type_);
+    this->get_parameter("enable_diagnostics", enable_diagnostics_);
+
+
 
 }
 
@@ -91,7 +115,55 @@ void AeyeDriverNode::declare_all_parameters()
 //
 void AeyeDriverNode::build_field_layout()
 {
+    active_fields_.clear();
 
+    FieldConfig x{};
+    x.name = "x";
+    x.datatype = sensor_msgs::msg::PointField::FLOAT32;
+    x.offset = 4;
+    x.count = 1;
+    active_fields_.push_back(x);
+
+    FieldConfig y{};
+    x.name = "y";
+    x.datatype = sensor_msgs::msg::PointField::FLOAT32;
+    x.offset = 4;
+    x.count = 1;
+    active_fields_.push_back(y);
+
+    FieldConfig z{};
+    x.name = "z";
+    x.datatype = sensor_msgs::msg::PointField::FLOAT32;
+    x.offset = 4;
+    x.count = 1;
+    active_fields_.push_back(z);
+
+    if (include_intensity_) {
+        FieldConfig intensity{};
+        x.name = "intensity";
+        x.datatype = sensor_msgs::msg::PointField::FLOAT32;
+        x.offset = 4;
+        x.count = 1;
+        active_fields_.push_back(intensity);
+    }
+
+    if (include_timestamp_) {
+        FieldConfig timestamp{};
+        x.name = "timestamp";
+        x.datatype = sensor_msgs::msg::PointField::FLOAT64;
+        x.offset = 8;
+        x.count = 1;
+        active_fields_.push_back(timestamp);
+    }
+
+    if (include_point_type_) {
+        FieldConfig point_type{};
+        x.name = "point_type";
+        x.datatype = sensor_msgs::msg::PointField::FLOAT32;
+        x.offset = 4;
+        x.count = 1;
+        active_fields_.push_back(point_type);
+    }
 }
 
 // ============================================================
@@ -109,6 +181,10 @@ void AeyeDriverNode::build_field_layout()
 void AeyeDriverNode::setup_publisher()
 {
 
+    publisher_ = create_publisher<sensor_msgs::msg::PointCloud2>("aeye_lidar",
+        rclcpp::SensorDataQoS());
+
+    RCLCPP_DEBUG(rclcpp::get_logger("aeye_driver_node"), "setup_publisher");
 }
 
 // ============================================================
@@ -126,7 +202,12 @@ void AeyeDriverNode::setup_publisher()
 //
 void AeyeDriverNode::start_receiver()
 {
-
+    auto cb = [this](const AeyePointPacket& packet) {
+        on_packet(packet);
+    };
+    receiver_ = std::make_unique<AeyeReceiver>(AeyeReceiver(sensor_ip_, port_,
+        cb));
+    receiver_->start();
 }
 
 // ============================================================
